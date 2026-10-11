@@ -105,6 +105,12 @@ import CRT
   }
   #endif
 
+  /// A missing tool is reported by name, not as the raw enum case.
+  @Test func unableToFindToolDiagnostic() {
+    let error = ToolchainError.unableToFind(tool: "swift-frontend")
+    #expect(error.description == "unable to find 'swift-frontend' in the toolchain")
+  }
+
   /// A standalone `swift` that is not the driver is still accepted as a legacy frontend.
   @Test func frontendLookupKeepsLegacySwiftFallback() async throws {
     try await withTemporaryDirectory { tmpDir in

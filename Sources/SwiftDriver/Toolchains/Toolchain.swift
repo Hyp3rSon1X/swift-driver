@@ -19,6 +19,7 @@ import func TSCBasic.getEnvSearchPaths
 import func TSCBasic.lookupExecutablePath
 import func TSCBasic.resolveSymlinks
 import class TSCBasic.DiagnosticsEngine
+import protocol TSCBasic.DiagnosticData
 import protocol TSCBasic.FileSystem
 import struct TSCBasic.AbsolutePath
 import typealias TSCBasic.ProcessEnvironmentBlock
@@ -441,6 +442,13 @@ extension Toolchain {
   }
 }
 
-@_spi(Testing) public enum ToolchainError: Swift.Error {
+@_spi(Testing) public enum ToolchainError: Swift.Error, DiagnosticData {
   case unableToFind(tool: String)
+
+  public var description: String {
+    switch self {
+    case .unableToFind(let tool):
+      return "unable to find '\(tool)' in the toolchain"
+    }
+  }
 }
