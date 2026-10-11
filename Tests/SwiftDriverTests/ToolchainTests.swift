@@ -70,6 +70,51 @@ import CRT
     #expect(throws: Never.self) { try driver.toolchain.getToolPath(.dsymutil) }
   }
 
+  /// Makes a toolchain whose only tool directory is `dir`, with nothing else reachable
+  /// through the environment, so `swift-frontend` lookup depends only on `dir`.
+  private func makeIsolatedToolchain(executableDir dir: AbsolutePath) throws -> GenericUnixToolchain {
+    let env: ProcessEnvironmentBlock = ["PATH": ""]
+    let executor = try SwiftDriverExecutor(
+      diagnosticsEngine: DiagnosticsEngine(),
+      processSet: ProcessSet(),
+      fileSystem: localFileSystem,
+      env: env
+    )
+    return GenericUnixToolchain(
+      env: env, executor: executor, fileSystem: localFileSystem, compilerExecutableDir: dir)
+  }
+
+  private func makeExecutableStub(at path: AbsolutePath) throws {
+    try localFileSystem.writeFileContents(path, bytes: "#!/bin/sh\nexit 0\n")
+    try localFileSystem.chmod(.executable, path: path)
+  }
+
+  #if !os(Windows)
+  /// When `swift-frontend` is missing and `swift` is a symlink to `swift-driver`,
+  /// the legacy fallback to `swift` would make the driver exec itself forever.
+  @Test func frontendLookupSkipsDriverSymlink() async throws {
+    try await withTemporaryDirectory { tmpDir in
+      try makeExecutableStub(at: tmpDir.appending(component: "swift-driver"))
+      try localFileSystem.createSymbolicLink(
+        tmpDir.appending(component: "swift"), pointingAt: tmpDir.appending(component: "swift-driver"),
+        relative: false)
+      let toolchain = try makeIsolatedToolchain(executableDir: tmpDir)
+      #expect(throws: ToolchainError.self) { try toolchain.lookup(executable: "swift-frontend") }
+      #expect(throws: ToolchainError.self) { try toolchain.getToolPath(.swiftCompiler) }
+    }
+  }
+  #endif
+
+  /// A standalone `swift` that is not the driver is still accepted as a legacy frontend.
+  @Test func frontendLookupKeepsLegacySwiftFallback() async throws {
+    try await withTemporaryDirectory { tmpDir in
+      let legacy = tmpDir.appending(component: "swift")
+      try makeExecutableStub(at: legacy)
+      let toolchain = try makeIsolatedToolchain(executableDir: tmpDir)
+      #expect(try toolchain.lookup(executable: "swift-frontend") == legacy)
+    }
+  }
+
   @Test func swiftHelpOverride() async throws {
     // FIXME: On Linux, we might not have any Clang in the path. We need a
     // better override.

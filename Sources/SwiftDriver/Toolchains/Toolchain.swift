@@ -17,6 +17,7 @@ import class Foundation.Bundle
 
 import func TSCBasic.getEnvSearchPaths
 import func TSCBasic.lookupExecutablePath
+import func TSCBasic.resolveSymlinks
 import class TSCBasic.DiagnosticsEngine
 import protocol TSCBasic.FileSystem
 import struct TSCBasic.AbsolutePath
@@ -250,9 +251,14 @@ extension Toolchain {
       return path
     } else if let path = lookupExecutablePath(filename: executableName(executable), searchPaths: searchPaths) {
       return path
-    } else if executable == "swift-frontend" {
+    } else if executable == "swift-frontend",
+              let legacyFrontend = try? lookup(executable: "swift"),
+              !isDriverExecutable(legacyFrontend) {
       // Temporary shim: fall back to looking for "swift" before failing.
-      return try lookup(executable: "swift")
+      // Skip it when "swift" is the driver itself (a symlink to swift-driver in
+      // current toolchains): using it as the frontend makes every frontend job
+      // re-exec the driver forever instead of reporting the missing frontend.
+      return legacyFrontend
     } else if fallbackToExecutableDefaultPath {
       if self is WindowsToolchain {
         return try getToolPath(.swiftCompiler)
@@ -264,6 +270,21 @@ extension Toolchain {
     }
 
     throw ToolchainError.unableToFind(tool: executable)
+  }
+
+  /// Returns true if `path` resolves to the driver binary, either by name or by
+  /// being the currently running executable.
+  private func isDriverExecutable(_ path: AbsolutePath) -> Bool {
+    let resolved = (try? resolveSymlinks(path)) ?? path
+    if resolved.basename == executableName("swift-driver") {
+      return true
+    }
+    if let running = Bundle.main.executablePath,
+       let runningPath = try? AbsolutePath(validating: running),
+       let resolvedRunning = try? resolveSymlinks(runningPath) {
+      return resolved == resolvedRunning
+    }
+    return false
   }
 
   /// Looks for the executable in the `SWIFT_DRIVER_SWIFTSCAN_LIB` environment variable, if found nothing,
